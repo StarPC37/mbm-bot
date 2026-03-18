@@ -1,61 +1,44 @@
 import requests
 import os
 
-# 設定區
+# 從 GitHub Secrets 讀取
 WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK')
-# Garena 官方公告資料接口 (API)
-API_URL = "https://garena.tw"
-LAST_NEWS_FILE = "last_news.txt"
+TARGET_URL = "https://garena.tw"
 
-def get_latest_news():
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://garena.tw"
-    }
+def send_discord(msg):
+    payload = {"content": f"🤖 **機器人回報：**\n{msg}"}
     try:
-        # 直接請求 JSON 資料
-        response = requests.get(API_URL, headers=headers)
-        data = response.json()
-        
-        # 解析 JSON 結構
-        if data.get('status') == 0 and data.get('data', {}).get('list'):
-            latest = data['data']['list'][0]
-            title = latest.get('title')
-            # 建立公告連結
-            news_id = latest.get('id')
-            link = f"https://garena.tw/detail/{news_id}"
-            return title, link
-        else:
-            print("❌ API 資料結構異常")
-            return None, None
+        r = requests.post(WEBHOOK_URL, json=payload)
+        print(f"Discord 狀態碼: {r.status_code}")
     except Exception as e:
-        print(f"❌ 抓取失敗: {e}")
-        return None, None
+        print(f"發送 Discord 失敗: {e}")
 
 def main():
-    title, link = get_latest_news()
-    if not title: return
+    print("🚀 啟動監控...")
+    
+    # 先測試 Webhook 是否正常運作
+    send_discord("正在檢查天刀 M 官網公告...")
 
-    print(f"📡 伺服器回傳最新公告：{title}")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://garena.tw"
+    }
 
-    last_title = ""
-    if os.path.exists(LAST_NEWS_FILE):
-        with open(LAST_NEWS_FILE, "r", encoding="utf-8") as f:
-            last_title = f.read().strip()
-
-    if title != last_title:
-        print("✅ 發現新公告，發送至 Discord")
-        payload = {
-            "username": "天刀M 公告助手",
-            "embeds":
-        }
-        r = requests.post(WEBHOOK_URL, json=payload)
-        print(f"Discord 回應: {r.status_code}")
+    try:
+        # 嘗試抓取 HTML
+        res = requests.get(TARGET_URL, headers=headers, timeout=15)
+        res.encoding = 'utf-8'
         
-        with open(LAST_NEWS_FILE, "w", encoding="utf-8") as f:
-            f.write(title)
-    else:
-        print("😴 目前沒有新公告。")
+        # 這次我們改用最原始的關鍵字搜尋，避開所有標籤報錯
+        html_text = res.text
+        
+        # 搜尋關鍵字：3/18 (或你截圖中的日期)
+        # 如果抓得到 HTML，我們直接把前 500 個字傳回去看抓到了什麼
+        sample = html_text[:200].replace('\n', ' ')
+        send_discord(f"成功連線官網！網頁開頭預覽：\n`{sample}`")
+
+    except Exception as e:
+        send_discord(f"❌ 連線官網失敗，錯誤原因：{str(e)}")
 
 if __name__ == "__main__":
     main()
