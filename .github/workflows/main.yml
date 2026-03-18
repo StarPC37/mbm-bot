@@ -1,0 +1,34 @@
+name: MBM News Bot
+
+on:
+  schedule:
+    - cron: '0 * * * *' # 每小時執行一次
+  workflow_dispatch: # 允許手動執行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run script
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: python main.py
+
+      - name: Commit changes # 這步很重要，用來記住上次發過的公告
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add last_news.txt
+          git commit -m "Update last news" || exit 0
+          git push
