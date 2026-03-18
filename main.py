@@ -1,11 +1,30 @@
 import requests
-from bs4 import BeautifulSoup
-import json
 import os
+import json
 
+# 設定區
 WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK')
-TARGET_URL = "https://garena.tw"
+# 改用 Garena 官方列表 API (這是最穩定的來源)
+API_URL = "https://garena.tw"
 LAST_NEWS_FILE = "last_news.txt"
+
+def send_to_discord(title, link=None, is_error=False):
+    if not WEBHOOK_URL:
+        print("錯誤：找不到 WEBHOOK_URL")
+        return
+
+    if is_error:
+        payload = {"content": f"⚠️ **機器人回報錯誤**：{title}"}
+    else:
+        payload = {
+            "username": "天刀M 公告助手",
+            "embeds":
+        }
+    
+    try:
+        requests.post(WEBHOOK_URL, json=payload, timeout=10)
+    except Exception as e:
+        print(f"發送 Discord 失敗: {e}")
 
 def get_latest_news():
     headers = {
@@ -13,64 +32,56 @@ def get_latest_news():
         "Referer": "https://garena.tw"
     }
     try:
-        res = requests.get(TARGET_URL, headers=headers, timeout=15)
-        res.encoding = 'utf-8'
-        soup = BeautifulSoup(res.text, "html.parser")
-        
-        # 🎯 關鍵技術：找出 Next.js 隱藏在網頁底部的數據 (JSON)
-        script_tag = soup.find("script", id="__NEXT_DATA__")
-        if script_tag:
-            data = json.loads(script_tag.string)
-            # 從數據路徑抓取最新一則公告 (通常在 queries 裡面)
-            # 這是針對 Garena 新版網頁結構的精準定位
-            queries = data.get('props', {}).get('pageProps', {}).get('dehydratedState', {}).get('queries', [])
+        response = requests.get(API_URL, headers=headers, timeout=15)
+        # 如果伺服器回傳錯誤代碼 (如 403 或 500)
+        if response.status_code != 200:
+            return None, None, f"伺服器回傳狀態碼: {response.status_code}"
             
-            for q in queries:
-                if 'news/list' in q.get('queryKey', [None])[0]:
-                    latest = q['state']['data']['list'][0]
-                    title = latest['title']
-                    news_id = latest['id']
-                    link = f"https://garena.tw/detail/{news_id}"
-                    return title, link
+        data = response.json()
         
-        # 如果 JSON 抓不到，嘗試備用的 CSS 選擇器（兼容模式）
-        news_item = soup.select_one("a[class*='news_list_item']")
-        if news_item:
-            title = news_item.get_text(strip=True)
-            link = news_item['href']
-            if link.startswith('/'): link = f"https://garena.tw{link}"
-            return title, link
-
+        # 檢查 JSON 結構是否存在資料
+        if data.get('status') == 0 and 'data' in data and data['data'].get('list'):
+            item = data['data']['list']
+            title = item.get('title', '無標題')
+            news_id = item.get('id')
+            link = f"https://garena.tw/detail/{news_id}" if news_id else "https://garena.tw"
+            return title, link, None
+        else:
+            return None, None, "API 資料結構變動或內容為空"
+            
     except Exception as e:
-        print(f"解析失敗: {e}")
-    return None, None
+        return None, None, f"程式執行異常: {str(e)}"
 
 def main():
-    title, link = get_latest_news()
+    print("🚀 開始執行監控...")
+    title, link, error_msg = get_latest_news()
     
-    if not title:
-        print("❌ 依然抓不到公告標題")
+    if error_msg:
+        print(f"❌ 錯誤: {error_msg}")
+        # 只有在偵錯時才開啟這行，避免洗版
+        # send_to_discord(error_msg, is_error=True)
         return
 
-    print(f"✅ 成功抓取：{title}")
+    if not title:
+        print("❌ 抓不到公告標題")
+        return
 
-    # 讀取與比對
+    print(f"✅ 抓取成功：{title}")
+
+    # 讀取舊紀錄
     last_title = ""
     if os.path.exists(LAST_NEWS_FILE):
         with open(LAST_NEWS_FILE, "r", encoding="utf-8") as f:
             last_title = f.read().strip()
 
     if title != last_title:
-        payload = {
-            "username": "天刀M 公告助手",
-            "embeds":
-        }
-        requests.post(WEBHOOK_URL, json=payload)
-        
+        print("📫 發現新公告，準備發送...")
+        send_to_discord(title, link)
+        # 更新紀錄檔案
         with open(LAST_NEWS_FILE, "w", encoding="utf-8") as f:
             f.write(title)
     else:
-        print("😴 標題相同，不重複發送。")
+        print("😴 標題無變動，跳過。")
 
 if __name__ == "__main__":
     main()
