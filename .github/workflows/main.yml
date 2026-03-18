@@ -25,10 +25,17 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: python main.py
 
-      - name: Commit changes # 這步很重要，用來記住上次發過的公告
+      - name: Commit changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          # 檢查檔案是否存在，不存在則建立空的
+          touch last_news.txt
           git add last_news.txt
+          # 只有在有變動時才 commit，避免報錯
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update last news" && git push)
+
           git commit -m "Update last news" || exit 0
           git push
